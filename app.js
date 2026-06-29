@@ -172,7 +172,7 @@ const App = {
       if (Store.data.theme === 'light') document.documentElement.dataset.theme = 'light';
       this.startBg();
       this.renderHome();
-      try { PWA.init(); } catch (e) {}
+      // PWA removed: online-only mode
       // GUARANTEED: hide loading after 800ms no matter what
       setTimeout(() => { const l = $('#loading'); if (l) l.classList.add('hide'); }, 800);
       // Also: error fallback for any failed init step
@@ -303,11 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 const Toast = { show(m, t) { try { const z = $('#toastZone'); if (!z) return; const x = document.createElement('div'); x.className = 'toast ' + (t || ''); x.textContent = m; z.appendChild(x); setTimeout(() => { try { x.remove(); } catch {} }, 2800); } catch {} } };
 
-const PWA = {
-  deferred: null,
-  init() { try { if ('serviceWorker' in navigator) { navigator.serviceWorker.register('service-worker.js').catch(() => {}); } window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); this.deferred = e; const b = $('#installBtn'); if (b) b.style.display = 'inline-flex'; }); } catch (e) {} },
-  async install() { try { if (!this.deferred) return; this.deferred.prompt(); const r = await this.deferred.userChoice; if (r.outcome === 'accepted') Toast.show('📲 O\'rnatish boshlandi!', 'ok'); this.deferred = null; const b = $('#installBtn'); if (b) b.style.display = 'none'; } catch {} }
-};
+/* /* PWA removed: online-only mode */
 
 // Search on Enter
 document.addEventListener('DOMContentLoaded', () => {
