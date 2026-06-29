@@ -5,6 +5,146 @@
    You can also change them in the app: ⚙️ Admin → 🔑 API Keys
    ============================================ */
 
+/* ============================================
+   KRYZEN BookFinder — CONFIG
+   ============================================
+   ⚠️ ADMIN CREDENTIALS (MUHIM!) ⚠️
+   Login:    KRYZEN_ADMIN
+   Parol:    Kryz3n@B00kF1nd3r!2026
+   ============================================ */
+
+const ADMIN_CONFIG = {
+  username: 'KRYZEN_ADMIN',
+  password: 'Kryz3n@B00kF1nd3r!2026',
+  email: 'f91186645@gmail.com',
+  name: 'KRYZEN Administrator',
+  role: 'superadmin'
+};
+
+// SHA-256 hash (real parolni saqlamaslik uchun)
+async function hashPassword(pwd) {
+  const enc = new TextEncoder().encode(pwd);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Initialize admin hash on first load
+(async () => {
+  try {
+    if (!localStorage.getItem('kryzen_admin_hash')) {
+      const h = await hashPassword(ADMIN_CONFIG.password);
+      localStorage.setItem('kryzen_admin_hash', h);
+    }
+  } catch (e) {}
+})();
+
+const USERS_KEY = 'kryzen_users';
+const SESSION_KEY = 'kryzen_session';
+
+const Auth = {
+  current: null,
+
+  getUsers() {
+    try { return JSON.parse(localStorage.getItem(USERS_KEY) || '[]'); } catch { return []; }
+  },
+  saveUsers(users) { try { localStorage.setItem(USERS_KEY, JSON.stringify(users)); } catch {} },
+
+  async register(username, email, password) {
+    if (!username || !email || !password) throw new Error('Barcha maydonlarni to'ldiring');
+    if (username.length < 3) throw new Error('Login kamida 3 ta belgi');
+    if (password.length < 6) throw new Error('Parol kamida 6 ta belgi');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Email noto'g'ri');
+    if (username.toLowerCase() === ADMIN_CONFIG.username.toLowerCase()) throw new Error('Bu login band');
+
+    const users = this.getUsers();
+    if (users.find(u => u.username.toLowerCase() === username.toLowerCase())) throw new Error('Bu login band');
+    if (users.find(u => u.email.toLowerCase() === email.toLowerCase())) throw new Error('Bu email band');
+
+    const hash = await hashPassword(password);
+    const newUser = {
+      id: 'u-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      username, email, hash,
+      name: username,
+      avatar: '👤',
+      role: 'user',
+      joined: Date.now(),
+      lastLogin: Date.now(),
+      favorites: [],
+      history: [],
+      preferences: { theme: 'dark', language: 'uz' }
+    };
+    users.push(newUser);
+    this.saveUsers(users);
+    this.current = newUser;
+    sessionStorage.setItem(SESSION_KEY, newUser.id);
+    return newUser;
+  },
+
+  async login(username, password) {
+    // Check admin first
+    if (username === ADMIN_CONFIG.username) {
+      const h = await hashPassword(password);
+      const stored = localStorage.getItem('kryzen_admin_hash');
+      if (h === stored) {
+        const admin = { 
+          id: 'admin', 
+          username: ADMIN_CONFIG.username, 
+          email: ADMIN_CONFIG.email,
+          name: ADMIN_CONFIG.name,
+          role: 'admin',
+          avatar: '👑'
+        };
+        this.current = admin;
+        sessionStorage.setItem(SESSION_KEY, 'admin');
+        return admin;
+      }
+      throw new Error('Login yoki parol xato');
+    }
+
+    // Regular user
+    const users = this.getUsers();
+    const user = users.find(u => u.username.toLowerCase() === username.toLowerCase());
+    if (!user) throw new Error('Login yoki parol xato');
+    const h = await hashPassword(password);
+    if (h !== user.hash) throw new Error('Login yoki parol xato');
+    user.lastLogin = Date.now();
+    this.saveUsers(users);
+    this.current = user;
+    sessionStorage.setItem(SESSION_KEY, user.id);
+    return user;
+  },
+
+  logout() {
+    this.current = null;
+    sessionStorage.removeItem(SESSION_KEY);
+  },
+
+  restore() {
+    try {
+      const id = sessionStorage.getItem(SESSION_KEY);
+      if (!id) return null;
+      if (id === 'admin') {
+        this.current = { 
+          id: 'admin', 
+          username: ADMIN_CONFIG.username,
+          name: ADMIN_CONFIG.name,
+          role: 'admin',
+          avatar: '👑'
+        };
+        return this.current;
+      }
+      const users = this.getUsers();
+      const u = users.find(x => x.id === id);
+      if (u) { this.current = u; return u; }
+      return null;
+    } catch { return null; }
+  },
+
+  isLoggedIn() { return !!this.current; },
+  isAdmin() { return this.current && this.current.role === 'admin'; },
+  getCurrent() { return this.current; }
+};
+
 const API_CONFIG = {
   // 🔑 1) OPEN LIBRARY — bepul, kalit shart emas
   // Hujjat: https://openlibrary.org/developers/api
@@ -276,6 +416,8 @@ const App = {
   init() {
     try {
       Store.load();
+      Auth.restore();
+      this._updateAuthUI();
       if (Store.data.theme === 'light') document.documentElement.dataset.theme = 'light';
       this.startBg();
       this.renderHome();
@@ -303,7 +445,11 @@ const App = {
       privacy: () => this.renderLegal('privacy'),
       terms: () => this.renderLegal('terms'),
       admin: () => this.renderAdmin(),
-      apikeys: () => this.renderApiKeys()
+      apikeys: () => this.renderApiKeys(),
+      login: () => this.renderLogin(),
+      register: () => this.renderRegister(),
+      account: () => this.renderAccount(),
+      adminUsers: () => Auth.isAdmin() ? this.renderAdminUsers() : this.renderLogin()
     };
     try { (map[page] || map.home)(); } catch (e) { console.error('go error:', e); }
   },
@@ -348,7 +494,72 @@ const App = {
   },
   renderAbout() { $('#main').innerHTML = '<div style="max-width:700px;margin:0 auto;text-align:center;padding:40px 20px"><div style="font-size:80px;margin-bottom:20px">📚🔍</div><h2 style="font-size:32px;margin-bottom:14px" class="glow">KRYZEN BookFinder</h2><p style="color:var(--mut);font-size:16px;line-height:1.7">Premium AI kitob qidiruv platformasi. Open Library, Gutendex va Google Books API. 100% bepul va ochiq manba.</p></div>'; },
   renderLegal(t) { const x = t === 'privacy' ? 'Foydalanuvchi ma\'lumotlari faqat localStorage da saqlanadi. API larga faqat qidiruv so\'zlari yuboriladi.' : 'Open Library, Gutendex, Google Books API. Barcha kitoblar mualliflarga tegishli.'; $('#main').innerHTML = '<h2 class="section-title">' + (t === 'privacy' ? '🔒 Maxfiylik' : '📜 Shartlar') + '</h2><p style="line-height:1.8;padding:20px;background:var(--glass);border-radius:14px">' + x + '</p>'; },
-  renderAdmin() {
+  renderLogin() {
+    const m = $('#main');
+    m.innerHTML = '<h2 class="section-title">🔐 Tizimga kirish</h2><form class="contact-form" id="loginForm" style="max-width:420px;margin:0 auto"><div style="text-align:center;font-size:60px;margin-bottom:20px">🔐</div><input class="form-input" name="username" placeholder="Login" required autofocus><input class="form-input" type="password" name="password" placeholder="Parol" required><button type="submit" class="submit-btn">🔓 Kirish</button><p style="text-align:center;margin-top:20px;color:var(--mut)">Akkountingiz yo\'qmi? <a href="#" onclick="App.go(\'register\');return false" style="color:var(--neon)">Ro\'yxatdan o\'ting</a></p></form>';
+    const f = $('#loginForm');
+    if (f) f.addEventListener('submit', async e => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(f));
+      try { 
+        const u = await Auth.login(d.username, d.password);
+        Toast.show('✅ Xush kelibsiz, ' + u.name + '!', 'ok');
+        this._updateAuthUI();
+        this.go(u.role === 'admin' ? 'admin' : 'home');
+      } catch (err) { Toast.show('❌ ' + err.message, 'err'); }
+    });
+  },
+  renderRegister() {
+    const m = $('#main');
+    m.innerHTML = '<h2 class="section-title">📝 Ro\'yxatdan o\'tish</h2><form class="contact-form" id="regForm" style="max-width:420px;margin:0 auto"><div style="text-align:center;font-size:60px;margin-bottom:20px">✨</div><input class="form-input" name="username" placeholder="Login (kamida 3 ta belgi) *" required><input class="form-input" type="email" name="email" placeholder="Email *" required><input class="form-input" type="password" name="password" placeholder="Parol (kamida 6 ta belgi) *" required><input class="form-input" type="password" name="password2" placeholder="Parolni tasdiqlang *" required><button type="submit" class="submit-btn">🚀 Ro\'yxatdan o\'tish</button><p style="text-align:center;margin-top:20px;color:var(--mut)">Allaqachon ro\'yxatdan o\'tganmisiz? <a href="#" onclick="App.go(\'login\');return false" style="color:var(--neon)">Kirish</a></p></form>';
+    const f = $('#regForm');
+    if (f) f.addEventListener('submit', async e => {
+      e.preventDefault();
+      const d = Object.fromEntries(new FormData(f));
+      if (d.password !== d.password2) return Toast.show('❌ Parollar mos kelmadi', 'err');
+      try { 
+        const u = await Auth.register(d.username, d.email, d.password);
+        Toast.show('✅ Muvaffaqiyatli ro\'yxatdan o\'tdingiz!', 'ok');
+        this._updateAuthUI();
+        this.go('home');
+      } catch (err) { Toast.show('❌ ' + err.message, 'err'); }
+    });
+  },
+  renderAccount() {
+    const m = $('#main');
+    const u = Auth.getCurrent();
+    if (!u) { this.renderLogin(); return; }
+    const favs = u.favorites || [];
+    m.innerHTML = '<h2 class="section-title">👤 Mening profilim</h2><div class="admin-card" style="text-align:center"><div style="font-size:80px;margin-bottom:10px">' + (u.avatar || '👤') + '</div><h3>' + esc(u.name || u.username) + '</h3><p style="color:var(--mut)">@' + esc(u.username) + '</p><p style="color:var(--mut);font-size:13px">' + esc(u.email || '—') + '</p><p style="color:var(--mut);font-size:12px;margin-top:8px">Qo\'shilgan: ' + new Date(u.joined || Date.now()).toLocaleDateString('uz-UZ') + '</p></div><div class="admin-card"><h3>📊 Statistika</h3><div class="stat-grid"><div class="stat-item"><div class="stat-value">' + fmt(favs.length) + '</div><div class="stat-label">Sevimlilar</div></div><div class="stat-item"><div class="stat-value">' + fmt((u.history || []).length) + '</div><div class="stat-label">Qidiruvlar</div></div></div></div><div class="admin-card"><button class="action-btn" id="logoutBtn" style="background:var(--err);color:#fff">🚪 Chiqish</button></div>';
+    const b = $('#logoutBtn');
+    if (b) b.addEventListener('click', () => { Auth.logout(); this._updateAuthUI(); Toast.show('Chiqdingiz'); this.go('home'); });
+  },
+  _updateAuthUI() {
+    const nav = $('#authNav');
+    if (!nav) return;
+    const u = Auth.getCurrent();
+    if (u) {
+      nav.innerHTML = '<a class="nav-link" onclick="App.go(\'account\')">👤 ' + esc(u.username) + '</a>' + (u.role === 'admin' ? '<a class="nav-link" onclick="App.go(\'admin\')">⚙️</a>' : '') + '<a class="nav-link" onclick="App.doLogout()" style="color:var(--err)">🚪</a>';
+    } else {
+      nav.innerHTML = '<a class="nav-link" onclick="App.go(\'login\')">🔐 Kirish</a><a class="nav-link" onclick="App.go(\'register\')">📝</a>';
+    }
+  },
+  doLogout() { Auth.logout(); this._updateAuthUI(); Toast.show('Chiqdingiz'); this.go('home'); },
+  renderAdminUsers() {
+    const m = $('#main');
+    const users = Auth.getUsers();
+    let h = '<h2 class="section-title">👥 Foydalanuvchilar (' + users.length + ')</h2>';
+    h += '<div class="admin-card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--bord)"><th style="padding:10px;text-align:left">#</th><th style="padding:10px;text-align:left">Login</th><th style="padding:10px;text-align:left">Email</th><th style="padding:10px;text-align:left">Sana</th><th style="padding:10px;text-align:left">Amal</th></tr></thead><tbody>';
+    if (users.length === 0) h += '<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--mut)">Hozircha foydalanuvchi yo\'q</td></tr>';
+    users.forEach((u, i) => {
+      h += '<tr style="border-bottom:1px solid var(--bord)"><td style="padding:10px">' + (i+1) + '</td><td style="padding:10px">' + esc(u.username) + '</td><td style="padding:10px">' + esc(u.email) + '</td><td style="padding:10px">' + new Date(u.joined).toLocaleDateString('uz-UZ') + '</td><td style="padding:10px"><button class="action-btn" data-del="' + esc(u.id) + '" style="padding:4px 10px;background:var(--err);color:#fff;font-size:12px">🗑</button></td></tr>';
+    });
+    h += '</tbody></table></div>';
+    h += '<p style="margin-top:14px;padding:12px;background:var(--glass);border-radius:10px;color:var(--mut);font-size:13px">⚠️ Foydalanuvchilar ma\'lumotlari har bir foydalanuvchining o\'z brauzerida saqlanadi (localStorage). Bu demo rejim. To\'liq ishlashi uchun backend kerak.</p>';
+    m.innerHTML = h;
+    m.addEventListener('click', e => { const b = e.target.closest('[data-del]'); if (b && confirm('O\'chirilsinmi?')) { const id = b.dataset.del; const u = Auth.getUsers().filter(x => x.id !== id); Auth.saveUsers(u); Toast.show('O\'chirildi', 'ok'); this.renderAdminUsers(); } });
+  },
+    renderAdmin() {
     const s = Store.data.stats || {};
     $('#main').innerHTML = '<h2 class="section-title">⚙️ Admin panel</h2><div class="admin-card"><h3>📊 Statistika</h3><div class="stat-grid"><div class="stat-item"><div class="stat-value">' + fmt(s.searches || 0) + '</div><div class="stat-label">Qidiruvlar</div></div><div class="stat-item"><div class="stat-value">' + fmt(s.booksViewed || 0) + '</div><div class="stat-label">Ko\'rilgan</div></div><div class="stat-item"><div class="stat-value">' + fmt((Store.data.favorites || []).length) + '</div><div class="stat-label">Sevimlilar</div></div></div></div><div class="admin-card"><h3>🛠 Sozlamalar</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="action-btn" id="apikeysBtn">🔑 API kalitlar</button><button class="action-btn" id="clearCacheBtn">🗑 Cache tozalash</button><button class="action-btn" id="resetBtn">♻️ Barcha ma\'lumotlarni tozalash</button></div></div><div class="admin-card"><h3>🌐 API holati</h3><div id="apiStatusList"></div></div>';
     const b1 = $('#apikeysBtn'); if (b1) b1.addEventListener('click', () => this.renderApiKeys());
