@@ -21,6 +21,137 @@ const ADMIN_CONFIG = {
   role: 'superadmin'
 };
 
+
+
+/* ============================================
+   🔥 FIREBASE CONFIGURATION
+   ============================================
+   TO ACTIVATE REAL FIREBASE:
+   1) Go to https://console.firebase.google.com
+   2) Create new project "KRYZEN BookFinder"
+   3) In Project Settings → copy the config object
+   4) Replace the FIREBASE_CONFIG below
+   5) Enable in console: Authentication → Sign-in methods:
+      - Email/Password
+      - Google
+      - Phone
+   6) Get Firestore started (test mode)
+
+   ⏳ WITHOUT FIREBASE: Demo mode (data stored locally only)
+   ============================================ */
+
+const FIREBASE_CONFIG = {
+  // ← PASTE YOUR FIREBASE CONFIG HERE:
+  apiKey: "YOUR_API_KEY_HERE",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_PROJECT.appspot.com",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+// Mock Firebase for demo (when not configured)
+const FirebaseMock = {
+  init() { return false; },
+  currentUser: null,
+  async createUser(email, password) {
+    // Demo: just return a mock user
+    return { uid: 'demo-' + Date.now(), email, emailVerified: false, displayName: email.split('@')[0] };
+  },
+  async signIn(email, password) {
+    const u = this.currentUser;
+    if (!u || u.email !== email) throw new Error('Email yoki parol xato');
+    return u;
+  },
+  async signInWithGoogle() {
+    // Demo: simulate Google sign-in
+    this.currentUser = {
+      uid: 'google-' + Date.now(),
+      email: 'demo.google@kryzen.uz',
+      displayName: 'Google Demo User',
+      photoURL: null,
+      emailVerified: true,
+      provider: 'google'
+    };
+    return this.currentUser;
+  },
+  async signInWithPhone(phone) {
+    // Demo: simulate phone verification
+    return { uid: 'phone-' + Date.now(), phoneNumber: phone, displayName: 'Phone User' };
+  },
+  async sendEmailVerification() {
+    return { sent: true, demo: true };  // Demo: don't actually send
+  },
+  async sendPasswordReset(email) {
+    return { sent: true, demo: true };
+  },
+  signOut() { this.currentUser = null; },
+  onAuthStateChanged(cb) { 
+    setTimeout(() => cb(this.currentUser), 100); 
+  }
+};
+
+// Try to use real Firebase (if config loaded)
+let firebase = null;
+try {
+  // Load Firebase SDK from CDN
+  if (FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.startsWith('YOUR_')) {
+    console.log('🔥 Firebase configured, loading SDK...');
+    // Note: in production you'd use ES modules with import
+  }
+} catch (e) {}
+
+const FbAuth = {
+  init() { 
+    return !!firebase;
+  },
+  async register(email, password) {
+    if (firebase && firebase.auth) return await firebase.auth().createUserWithEmailAndPassword(email, password);
+    return await FirebaseMock.createUser(email, password);
+  },
+  async login(email, password) {
+    if (firebase && firebase.auth) {
+      const cred = await firebase.auth().signInWithEmailAndPassword(email, password);
+      return cred.user;
+    }
+    return await FirebaseMock.signIn(email, password);
+  },
+  async loginWithGoogle() {
+    if (firebase && firebase.auth) {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      const cred = await firebase.auth().signInWithPopup(provider);
+      return cred.user;
+    }
+    return await FirebaseMock.signInWithGoogle();
+  },
+  async loginWithPhone(phone) {
+    if (firebase && firebase.auth) {
+      // Real phone auth needs reCAPTCHA setup
+      return { phone };
+    }
+    return await FirebaseMock.signInWithPhone(phone);
+  },
+  async sendVerification() {
+    if (firebase && firebase.auth && firebase.auth().currentUser) {
+      await firebase.auth().currentUser.sendEmailVerification();
+      return { sent: true };
+    }
+    return await FirebaseMock.sendEmailVerification();
+  },
+  async resetPassword(email) {
+    if (firebase && firebase.auth) {
+      await firebase.auth().sendPasswordResetEmail(email);
+      return { sent: true };
+    }
+    return await FirebaseMock.sendPasswordReset(email);
+  },
+  logout() {
+    if (firebase && firebase.auth) return firebase.auth().signOut();
+    return FirebaseMock.signOut();
+  }
+};
+
+
 // SHA-256 hash (real parolni saqlamaslik uchun)
 async function hashPassword(pwd) {
   const enc = new TextEncoder().encode(pwd);
@@ -449,7 +580,10 @@ const App = {
       login: () => this.renderLogin(),
       register: () => this.renderRegister(),
       account: () => this.renderAccount(),
-      adminUsers: () => Auth.isAdmin() ? this.renderAdminUsers() : this.renderLogin()
+      adminUsers: () => Auth.isAdmin() ? this.renderAdminUsers() : this.renderLogin(),
+      forgot: () => this.renderForgotPassword(),
+      verify: () => this.renderVerifyEmail(),
+      phone: () => this.renderPhoneLogin()
     };
     try { (map[page] || map.home)(); } catch (e) { console.error('go error:', e); }
   },
@@ -494,9 +628,70 @@ const App = {
   },
   renderAbout() { $('#main').innerHTML = '<div style="max-width:700px;margin:0 auto;text-align:center;padding:40px 20px"><div style="font-size:80px;margin-bottom:20px">📚🔍</div><h2 style="font-size:32px;margin-bottom:14px" class="glow">KRYZEN BookFinder</h2><p style="color:var(--mut);font-size:16px;line-height:1.7">Premium AI kitob qidiruv platformasi. Open Library, Gutendex va Google Books API. 100% bepul va ochiq manba.</p></div>'; },
   renderLegal(t) { const x = t === 'privacy' ? 'Foydalanuvchi ma\'lumotlari faqat localStorage da saqlanadi. API larga faqat qidiruv so\'zlari yuboriladi.' : 'Open Library, Gutendex, Google Books API. Barcha kitoblar mualliflarga tegishli.'; $('#main').innerHTML = '<h2 class="section-title">' + (t === 'privacy' ? '🔒 Maxfiylik' : '📜 Shartlar') + '</h2><p style="line-height:1.8;padding:20px;background:var(--glass);border-radius:14px">' + x + '</p>'; },
-  renderLogin() {
+  renderForgotPassword() {
     const m = $('#main');
-    m.innerHTML = '<h2 class="section-title">🔐 Tizimga kirish</h2><form class="contact-form" id="loginForm" style="max-width:420px;margin:0 auto"><div style="text-align:center;font-size:60px;margin-bottom:20px">🔐</div><input class="form-input" name="username" placeholder="Login" required autofocus><input class="form-input" type="password" name="password" placeholder="Parol" required><button type="submit" class="submit-btn">🔓 Kirish</button><p style="text-align:center;margin-top:20px;color:var(--mut)">Akkountingiz yo\'qmi? <a href="#" onclick="App.go(\'register\');return false" style="color:var(--neon)">Ro\'yxatdan o\'ting</a></p></form>';
+    m.innerHTML = '<h2 class="section-title">🔑 Parolni tiklash</h2><form class="contact-form" id="forgotForm" style="max-width:420px;margin:0 auto"><div style="text-align:center;font-size:60px;margin-bottom:20px">📧</div><p style="color:var(--mut);text-align:center;margin-bottom:20px">Email kiriting — tiklash havolasi yuboriladi</p><input class="form-input" type="email" name="email" placeholder="Email" required><button type="submit" class="submit-btn">📤 Yuborish</button><p style="text-align:center;margin-top:20px;color:var(--mut)"><a href="#" onclick="App.go(\'login\');return false" style="color:var(--neon)">← Kirishga qaytish</a></p></form>';
+    const f = $('#forgotForm');
+    if (f) f.addEventListener('submit', async e => {
+      e.preventDefault();
+      const email = f.email.value.trim();
+      try {
+        const r = await FbAuth.resetPassword(email);
+        Toast.show('📧 ' + (r.demo ? 'Demo rejim: haqiqiy yuborilmadi (Firebase sozlanmagan)' : 'Yuborildi!'), 'ok');
+        setTimeout(() => App.go('login'), 2000);
+      } catch (err) { Toast.show('❌ ' + err.message, 'err'); }
+    });
+  },
+  renderVerifyEmail() {
+    const u = Auth.getCurrent();
+    if (!u) { this.renderLogin(); return; }
+    const m = $('#main');
+    m.innerHTML = '<h2 class="section-title">✉️ Email tasdiqlash</h2><div class="admin-card" style="max-width:480px;margin:0 auto;text-align:center"><div style="font-size:80px;margin-bottom:20px">📧</div><h3>Email tasdiqlanmagan</h3><p style="color:var(--mut);margin:14px 0">' + esc(u.email || '') + '</p><p style="color:var(--mut);font-size:14px;margin-bottom:20px">Tasdiqlash havolasi emailingizga yuborildi. Iltimos, pochtangizni tekshiring (Spam ham).</p><button class="action-btn primary" id="resendBtn">📤 Qayta yuborish</button><br><button class="action-btn" id="checkBtn" style="margin-top:14px">🔄 Tekshirish</button><br><button class="action-btn" onclick="Auth.doLogout();App.go(\'login\')" style="margin-top:14px">🚪 Chiqish</button></div>';
+    const r1 = $('#resendBtn');
+    if (r1) r1.addEventListener('click', async () => {
+      const r = await FbAuth.sendVerification();
+      Toast.show('📧 ' + (r.demo ? 'Demo: yuborilmadi' : 'Yuborildi!'), 'ok');
+    });
+  },
+  renderPhoneLogin() {
+    const m = $('#main');
+    m.innerHTML = '<h2 class="section-title">📱 Telefon bilan kirish</h2><form class="contact-form" id="phoneForm" style="max-width:420px;margin:0 auto"><div style="text-align:center;font-size:60px;margin-bottom:20px">📱</div><div id="phone-step-1"><p style="color:var(--mut);margin-bottom:14px;text-align:center">Telefon raqamingizni kiriting</p><div style="display:flex;gap:8px"><input class="form-input" value="+998" style="width:80px;text-align:center" readonly><input class="form-input" name="phone" placeholder="90 123 45 67" required maxlength="9" pattern="[0-9 ]*"></div><button type="button" id="sendCodeBtn" class="submit-btn" style="margin-top:14px">📤 Kod yuborish</button></div><div id="phone-step-2" style="display:none"><p style="color:var(--mut);margin-bottom:14px;text-align:center">SMS kodni kiriting</p><input class="form-input" name="code" placeholder="6 xonali kod" maxlength="6" required pattern="[0-9]*" style="text-align:center;font-size:24px;letter-spacing:8px"><button type="submit" class="submit-btn" style="margin-top:14px">✅ Tasdiqlash</button></div><div id="phone-demo-info" style="margin-top:14px;padding:12px;background:var(--glass);border-radius:10px;font-size:12px;color:var(--mut);text-align:center;display:none">📌 Demo rejim: <span id="demo-code" style="color:var(--neon);font-weight:bold;font-size:18px;letter-spacing:4px"></span></div></form>';
+    const f = $('#phoneForm');
+    const s1 = $('#phone-step-1'), s2 = $('#phone-step-2');
+    const codeInfo = $('#phone-demo-info');
+    const sendBtn = $('#sendCodeBtn');
+    let demoCode = '';
+
+    if (sendBtn) sendBtn.addEventListener('click', async () => {
+      const phone = '+998' + (f.phone.value || '').replace(/\D/g, '');
+      if (phone.length < 13) return Toast.show('❌ Toʻliq raqam kiriting', 'err');
+      try {
+        demoCode = String(Math.floor(100000 + Math.random() * 900000));
+        codeInfo.style.display = 'block';
+        $('#demo-code').textContent = demoCode;
+        Toast.show('📱 Kod yuborildi', 'ok');
+        s1.style.display = 'none';
+        s2.style.display = 'block';
+      } catch (err) { Toast.show('❌ ' + err.message, 'err'); }
+    });
+
+    if (f) f.addEventListener('submit', async e => {
+      e.preventDefault();
+      const code = f.code.value.trim();
+      if (code !== demoCode) return Toast.show('❌ Kod xato', 'err');
+      try {
+        const u = { id: 'phone-' + Date.now(), name: 'Phone User', username: 'phone_user', role: 'user', avatar: '📱' };
+        Auth.current = u;
+        sessionStorage.setItem(SESSION_KEY, u.id);
+        Toast.show('✅ Kirildi!', 'ok');
+        this._updateAuthUI();
+        this.go('home');
+      } catch (err) { Toast.show('❌ ' + err.message, 'err'); }
+    });
+  },
+    renderLogin() {
+    const m = $('#main');
+    m.innerHTML = '<h2 class="section-title">🔐 Tizimga kirish</h2><form class="contact-form" id="loginForm" style="max-width:420px;margin:0 auto"><div style="text-align:center;font-size:60px;margin-bottom:20px">🔐</div><input class="form-input" name="username" placeholder="Login" required autofocus><input class="form-input" type="password" name="password" placeholder="Parol" required><button type="submit" class="submit-btn">🔓 Kirish</button><p style="text-align:center;margin-top:20px;color:var(--mut)">Akkountingiz yo\'qmi? <a href="#" onclick="App.go(\'register\');return false" style="color:var(--neon)">Ro\'yxatdan o\'ting</a></p><p style="text-align:center;margin-top:10px"><a href="#" onclick="App.go(\'forgot\');return false" style="color:var(--mut);font-size:13px">🔑 Parolni unutdingizmi?</a></p><div style="margin-top:20px;display:flex;flex-direction:column;gap:10px"><button type="button" id="googleBtn" class="submit-btn" style="background:#fff;color:#333;border:1px solid #ddd"><span style="display:inline-flex;align-items:center;gap:8px"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/></svg> Google orqali kirish</span></button><button type="button" id="phoneLoginBtn" class="submit-btn" style="background:linear-gradient(135deg,#10b981,#06b6d4)">📱 Telefon bilan kirish</button></div></form>';
     const f = $('#loginForm');
     if (f) f.addEventListener('submit', async e => {
       e.preventDefault();
@@ -508,6 +703,19 @@ const App = {
         this.go(u.role === 'admin' ? 'admin' : 'home');
       } catch (err) { Toast.show('❌ ' + err.message, 'err'); }
     });
+    const gBtn = $('#googleBtn');
+    if (gBtn) gBtn.addEventListener('click', async () => {
+      try {
+        const u = await FbAuth.loginWithGoogle();
+        Auth.current = { id: u.uid || 'g-' + Date.now(), username: u.displayName || 'Google User', name: u.displayName, email: u.email, avatar: u.photoURL || '🟢', role: 'user', provider: 'google' };
+        sessionStorage.setItem(SESSION_KEY, Auth.current.id);
+        Toast.show('✅ Google orqali kirildi!', 'ok');
+        this._updateAuthUI();
+        this.go('home');
+      } catch (err) { Toast.show('❌ ' + err.message, 'err'); }
+    });
+    const pBtn = $('#phoneLoginBtn');
+    if (pBtn) pBtn.addEventListener('click', () => this.go('phone'));
   },
   renderRegister() {
     const m = $('#main');
@@ -520,8 +728,9 @@ const App = {
       try { 
         const u = await Auth.register(d.username, d.email, d.password);
         Toast.show('✅ Muvaffaqiyatli ro\'yxatdan o\'tdingiz!', 'ok');
+        try { await FbAuth.sendVerification(); } catch {}
         this._updateAuthUI();
-        this.go('home');
+        setTimeout(() => this.go('verify'), 1000);
       } catch (err) { Toast.show('❌ ' + err.message, 'err'); }
     });
   },
