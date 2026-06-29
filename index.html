@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="theme-color" content="#090909">
+<meta name="description" content="KRYZEN BookFinder - Dunyoning millionlab kitoblarini bir joyda toping. AI yordamida kitob qidirish, o'qish va yuklab olish platformasi.">
+<meta name="keywords" content="kitob, qidiruv, AI, library, books, open library, gutendex, kryzen">
+<meta name="author" content="KRYZEN">
+<title>KRYZEN BookFinder — Premium AI Kitob Qidiruv</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E📚%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<link rel="preconnect" href="https://openlibrary.org">
+<link rel="preconnect" href="https://www.googleapis.com">
+</head>
+<body>
+<div id="loading" class="loading"><div class="loader"></div><div class="loading-text">KRYZEN BookFinder</div></div>
+<canvas id="bgCanvas"></canvas>
+<header class="header">
+  <div class="container header-flex">
+    <a href="#" class="logo" onclick="App.go('home');return false">
+      <span class="logo-icon">📚🔍</span>
+      <span class="logo-text">KRYZEN<span class="accent">BookFinder</span></span>
+    </a>
+    <nav class="nav">
+      <a class="nav-link" onclick="App.go('home')">Bosh sahifa</a>
+      <a class="nav-link" onclick="App.go('categories')">Kategoriyalar</a>
+      <a class="nav-link" onclick="App.go('trending')">Trend</a>
+      <a class="nav-link" onclick="App.go('favorites')">Sevimlilar</a>
+      <a class="nav-link" onclick="App.go('contact')">Aloqa</a>
+      <a class="nav-link" onclick="App.go('admin')">Admin</a>
+    </nav>
+    <div class="header-actions">
+      <button class="icon-btn" onclick="UI.toggleTheme()" title="Tema">🌓</button>
+      <button class="icon-btn install-pwa" id="installBtn" onclick="PWA.install()" style="display:none">📲</button>
+    </div>
+  </div>
+</header>
+<section class="search-hero" id="hero">
+  <div class="container">
+    <h1 class="hero-title">📚🔍 KRYZEN BookFinder</h1>
+    <p class="hero-subtitle">"Dunyoning millionlab kitoblarini bir joyda toping."</p>
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="Kitob nomi, muallif, ISBN yoki janr kiriting..." autocomplete="off">
+      <button class="mic-btn" onclick="Search.toggleVoice()" title="Ovozli qidiruv">🎤</button>
+      <button class="search-btn" onclick="Search.go()">🔍 Qidirish</button>
+    </div>
+    <div class="quick-btns">
+      <button class="quick-btn" onclick="Search.random()">🎲 Tasodifiy kitob</button>
+      <button class="quick-btn" onclick="App.go('trending')">🔥 Trend kitoblar</button>
+      <button class="quick-btn" onclick="App.go('popular')">⭐ Mashhur</button>
+      <button class="quick-btn" onclick="App.go('new')">🆕 Yangi</button>
+      <button class="quick-btn" onclick="App.go('authors')">✍️ Mualliflar</button>
+      <button class="quick-btn" onclick="App.go('categories')">📂 Kategoriyalar</button>
+    </div>
+  </div>
+</section>
+<main id="main" class="container"></main>
+<div id="modal" class="modal"><div class="modal-content" id="modalContent"></div></div>
+<div id="toastZone" class="toast-zone"></div>
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="logo"><span class="logo-icon">📚🔍</span><span class="logo-text">KRYZEN<span class="accent">BookFinder</span></span></div>
+        <p>Premium AI kitob qidiruv platformasi. Millionlab kitoblar bir joyda.</p>
+        <div class="socials">
+          <a href="https://t.me/KRYZENVIP" target="_blank" class="social tg" title="Telegram"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.7 0 12 0zm5.6 8.2l-1.9 8.8c-.1.6-.5.8-1 .5l-2.8-2-1.3 1.3c-.2.2-.3.3-.5.3l.2-2.8 5.2-4.7c.2-.2 0-.3-.3-.1l-6.4 4-2.8-.9c-.6-.2-.6-.6.1-.9l10.9-4.2c.5-.2 1 .1.8.6z"/></svg></a>
+          <a href="https://instagram.com/KRYZENVIP" target="_blank" class="social ig" title="Instagram"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 2.2c3.2 0 3.6 0 4.8.1 1.2.1 1.8.2 2.2.4.6.2 1 .5 1.4.9.4.4.7.9.9 1.4.2.4.4 1.1.4 2.2.1 1.3.1 1.6.1 4.8s0 3.6-.1 4.8c-.1 1.2-.2 1.8-.4 2.2-.2.6-.5 1-.9 1.4-.4.4-.9.7-1.4.9-.4.2-1.1.4-2.2.4-1.3.1-1.6.1-4.8.1s-3.6 0-4.8-.1c-1.2-.1-1.8-.2-2.2-.4-.6-.2-1-.5-1.4-.9-.4-.4-.7-.9-.9-1.4-.2-.4-.4-1.1-.4-2.2C2.2 15.6 2.2 15.2 2.2 12s0-3.6.1-4.8c.1-1.2.2-1.8.4-2.2.2-.6.5-1 .9-1.4.4-.4.9-.7 1.4-.9.4-.2 1.1-.4 2.2-.4C8.4 2.2 8.8 2.2 12 2.2zm0 5.4c-2.4 0-4.4 2-4.4 4.4s2 4.4 4.4 4.4 4.4-2 4.4-4.4-2-4.4-4.4-4.4zm0 7.2c-1.6 0-2.8-1.3-2.8-2.8 0-1.6 1.3-2.8 2.8-2.8 1.6 0 2.8 1.3 2.8 2.8 0 1.6-1.2 2.8-2.8 2.8zm5.6-7.4c0 .6-.4 1-1 1s-1-.4-1-1 .4-1 1-1 1 .4 1 1z"/></svg></a>
+          <a href="https://github.com/KRYZENSYS" target="_blank" class="social gh" title="GitHub"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 .3a12 12 0 00-3.8 23.4c.6.1.8-.3.8-.6v-2.1c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1.1-.7.1-.7.1-.7 1.2.1 1.9 1.3 1.9 1.3 1.1 1.9 2.9 1.4 3.6 1 .1-.8.4-1.4.8-1.7-2.7-.3-5.5-1.3-5.5-6 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.6.1-3.3 0 0 1-.3 3.3 1.2a11.5 11.5 0 016 0c2.3-1.5 3.3-1.2 3.3-1.2.7 1.7.3 3 .1 3.3.8.8 1.2 1.9 1.2 3.2 0 4.7-2.8 5.7-5.5 6 .4.4.8 1.1.8 2.3v3.4c0 .3.2.7.8.6A12 12 0 0012 .3"/></svg></a>
+          <a href="mailto:f91186645@gmail.com" class="social em" title="Email"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg></a>
+        </div>
+      </div>
+      <div class="footer-col"><h4>Bo'limlar</h4><a onclick="App.go('home')">Bosh sahifa</a><a onclick="App.go('categories')">Kategoriyalar</a><a onclick="App.go('trending')">Trend kitoblar</a><a onclick="App.go('authors')">Mualliflar</a></div>
+      <div class="footer-col"><h4>Ma'lumot</h4><a onclick="App.go('about')">Biz haqimizda</a><a onclick="App.go('contact')">Aloqa</a><a onclick="App.go('privacy')">Maxfiylik</a><a onclick="App.go('terms')">Foydalanish shartlari</a></div>
+      <div class="footer-col"><h4>Aloqa</h4><a href="https://t.me/KRYZENVIP" target="_blank">Telegram: @KRYZENVIP</a><a href="https://instagram.com/KRYZENVIP" target="_blank">Instagram: @KRYZENVIP</a><a href="https://github.com/KRYZENSYS" target="_blank">GitHub: KRYZENSYS</a><a href="mailto:f91186645@gmail.com">Email: f91186645@gmail.com</a></div>
+    </div>
+    <div class="footer-bottom">Copyright © 2026 KRYZEN BookFinder · Powered by Open Library, Gutendex & Google Books APIs</div>
+  </div>
+</footer>
+<script src="app.js"></script>
+</body></html>
