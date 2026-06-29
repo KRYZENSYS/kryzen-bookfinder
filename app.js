@@ -1,3 +1,59 @@
+/* ============================================
+   KRYZEN BookFinder — API Keys Configuration
+   ============================================
+   TO ADD/MODIFY YOUR API KEYS, EDIT THE CONFIG OBJECT BELOW.
+   You can also change them in the app: ⚙️ Admin → 🔑 API Keys
+   ============================================ */
+
+const API_CONFIG = {
+  // 🔑 1) OPEN LIBRARY — bepul, kalit shart emas
+  // Hujjat: https://openlibrary.org/developers/api
+  openlibrary: {
+    enabled: true,
+    key: '',                    // Open Library hozircha kalit talab qilmaydi
+    baseUrl: 'https://openlibrary.org/search.json',
+    coverUrl: 'https://covers.openlibrary.org/b/id',
+    defaultLimit: 20
+  },
+
+  // 🔑 2) GUTENDEX — bepul, kalit shart emas
+  // Hujjat: https://gutendex.com/
+  gutendex: {
+    enabled: true,
+    key: '',                    // Gutendex hozircha kalit talab qilmaydi
+    baseUrl: 'https://gutendex.com/books',
+    defaultLimit: 20
+  },
+
+  // 🔑 3) GOOGLE BOOKS — kalit bilan limit 1000 → 100,000 so'rov/kun
+  // Kalit olish: https://console.cloud.google.com → Enable Books API → Create API Key
+  googlebooks: {
+    enabled: true,
+    key: 'YOUR_GOOGLE_BOOKS_API_KEY_HERE',  // ← BU YERGA KALITINGIZNI QO'YING
+    baseUrl: 'https://www.googleapis.com/books/v1/volumes',
+    defaultLimit: 20
+  },
+
+  // 🔑 4) ISBNDB — ixtiyoriy premium API
+  // Narxi: $9.99/oy (5000 qidiruv)
+  // Kalit: https://isbndb.com/isbn-database-api
+  // isbndb: {
+  //   enabled: false,
+  //   key: 'YOUR_ISBNDB_KEY',
+  //   baseUrl: 'https://api2.isbndb.com/book',
+  //   defaultLimit: 10
+  // },
+
+  // 🔑 5) NYTIMES BOOKS — bepul, kalit olish kerak
+  // https://developer.nytimes.com/docs/books-product/1/overview
+  // nytimes: {
+  //   enabled: false,
+  //   key: 'YOUR_NYTIMES_KEY',
+  //   baseUrl: 'https://api.nytimes.com/svc/books/v3',
+  //   defaultLimit: 20
+  // }
+};
+
 const $ = s => { try { return document.querySelector(s); } catch { return null; } };
 const $$ = s => { try { return [...document.querySelectorAll(s)]; } catch { return []; } };
 const fmt = n => (n||0).toLocaleString('uz-UZ');
@@ -5,29 +61,68 @@ const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<'
 
 const Store = {
   KEY: 'kryzen_bookfinder_v1',
+  KEY_CONFIG: 'kryzen_api_config',
   data: null,
+  config: null,
   def() { return { theme: 'dark', favorites: [], recent: [], searchHistory: [], stats: { searches: 0, booksViewed: 0, downloads: 0 } }; },
-  load() { try { this.data = { ...this.def(), ...JSON.parse(localStorage.getItem(this.KEY) || '{}') }; } catch { this.data = this.def(); } return this.data; },
-  save() { try { localStorage.setItem(this.KEY, JSON.stringify(this.data)); } catch {} }
+  load() { 
+    try { this.data = { ...this.def(), ...JSON.parse(localStorage.getItem(this.KEY) || '{}') }; } catch { this.data = this.def(); }
+    // Load API config from localStorage or use defaults
+    try {
+      const stored = JSON.parse(localStorage.getItem(this.KEY_CONFIG) || '{}');
+      this.config = {};
+      for (const k in API_CONFIG) {
+        this.config[k] = { ...API_CONFIG[k], ...(stored[k] || {}) };
+      }
+    } catch { 
+      this.config = { ...API_CONFIG }; 
+    }
+    return this.data; 
+  },
+  save() { try { localStorage.setItem(this.KEY, JSON.stringify(this.data)); } catch {} },
+  saveConfig() { 
+    try { 
+      const toSave = {};
+      for (const k in this.config) {
+        toSave[k] = { enabled: this.config[k].enabled, key: this.config[k].key };
+      }
+      localStorage.setItem(this.KEY_CONFIG, JSON.stringify(toSave));
+    } catch {} 
+  },
+  getApiKey(name) { return this.config[name]?.key || ''; },
+  isApiEnabled(name) { return !!this.config[name]?.enabled; }
 };
 
+// =================== API CALLER ===================
 const API = {
   cache: new Map(),
+
+  // Helper: URL ga key qo'shish
+  _addKey(url, name) {
+    const key = Store.getApiKey(name);
+    if (!key || key.startsWith('YOUR_')) return url;
+    const sep = url.includes('?') ? '&' : '?';
+    if (name === 'googlebooks') return url + sep + 'key=' + encodeURIComponent(key);
+    if (name === 'isbndb') return url + sep + 'apikey=' + encodeURIComponent(key);
+    return url;
+  },
+
   async openlibrary(query, opts = {}) {
+    if (!Store.isApiEnabled('openlibrary')) throw new Error('Open Library disabled');
     const { page = 1, limit = 20, sort = '' } = opts;
     let url;
-    if (query.kind === 'random') url = 'https://openlibrary.org/search.json?q=*&sort=random&limit=' + limit + '&page=' + page;
-    else if (query.q) url = 'https://openlibrary.org/search.json?q=' + encodeURIComponent(query.q) + '&limit=' + limit + '&page=' + page + (sort ? '&sort=' + sort : '');
+    if (query.kind === 'random') url = Store.config.openlibrary.baseUrl + '?q=*&sort=random&limit=' + limit + '&page=' + page;
+    else if (query.q) url = Store.config.openlibrary.baseUrl + '?q=' + encodeURIComponent(query.q) + '&limit=' + limit + '&page=' + page + (sort ? '&sort=' + sort : '');
     else return [];
     const res = await fetch(url);
-    if (!res.ok) throw new Error('OL fail');
+    if (!res.ok) throw new Error('OL fail: ' + res.status);
     const data = await res.json();
     return (data.docs || []).map(b => ({
       id: b.key || ('ol-' + (b.cover_i || Math.random())),
       title: b.title || 'Nomsiz',
       author: (b.author_name || [])[0] || 'Noma'lum',
       year: b.first_publish_year || null,
-      cover: b.cover_i ? 'https://covers.openlibrary.org/b/id/' + b.cover_i + '-M.jpg' : null,
+      cover: b.cover_i ? Store.config.openlibrary.coverUrl + '/' + b.cover_i + '-M.jpg' : null,
       isbn: (b.isbn || [])[0] || null,
       publisher: (b.publisher || [])[0] || null,
       language: (b.language || [])[0] || null,
@@ -38,11 +133,13 @@ const API = {
       source: 'openlibrary'
     }));
   },
+
   async gutendex(query, opts = {}) {
-    let url = 'https://gutendex.com/books/?page=' + (opts.page || 1);
+    if (!Store.isApiEnabled('gutendex')) throw new Error('Gutendex disabled');
+    let url = Store.config.gutendex.baseUrl + '/?page=' + (opts.page || 1);
     if (query.q) url += '&search=' + encodeURIComponent(query.q);
     const res = await fetch(url);
-    if (!res.ok) throw new Error('GX fail');
+    if (!res.ok) throw new Error('GX fail: ' + res.status);
     const data = await res.json();
     return (data.results || []).map(b => ({
       id: 'gut-' + b.id,
@@ -54,11 +151,14 @@ const API = {
       source: 'gutendex'
     }));
   },
+
   async googlebooks(query, opts = {}) {
+    if (!Store.isApiEnabled('googlebooks')) throw new Error('Google Books disabled');
     const limit = opts.limit || 20;
-    const url = 'https://www.googleapis.com/books/v1/volumes?q=' + encodeURIComponent(query.q || '*') + '&maxResults=' + limit + '&startIndex=' + ((opts.page - 1 || 0) * limit);
+    let url = Store.config.googlebooks.baseUrl + '?q=' + encodeURIComponent(query.q || '*') + '&maxResults=' + limit + '&startIndex=' + ((opts.page - 1 || 0) * limit);
+    url = this._addKey(url, 'googlebooks');
     const res = await fetch(url);
-    if (!res.ok) throw new Error('GB fail');
+    if (!res.ok) throw new Error('GB fail: ' + res.status);
     const data = await res.json();
     return (data.items || []).map(b => {
       const v = b.volumeInfo || {};
@@ -77,19 +177,24 @@ const API = {
       };
     });
   },
+
   async search(q, opts = {}) {
     const key = JSON.stringify({ q, ...opts });
     if (this.cache.has(key)) return this.cache.get(key);
-    for (const fn of [() => this.openlibrary(q, opts), () => this.gutendex(q, opts), () => this.googlebooks({ q: typeof q === 'string' ? q : 'popular' }, opts)]) {
+    const order = ['openlibrary', 'gutendex', 'googlebooks'];
+    for (const name of order) {
+      if (!Store.isApiEnabled(name)) continue;
       try {
-        const r = await fn();
+        const fn = this[name].bind(this);
+        const r = await fn(q, opts);
         if (r && r.length) { this.cache.set(key, r); return r; }
-      } catch {}
+      } catch (e) { console.warn(name, 'fail:', e.message); }
     }
     return [];
   }
 };
 
+// =================== SEARCH ===================
 const Search = {
   current: { q: '', page: 1, results: [] },
   async go(query) {
@@ -138,6 +243,7 @@ const Search = {
   }
 };
 
+// =================== UI ===================
 const UI = {
   showSkeleton(c, n) {
     if (!c) return;
@@ -165,6 +271,7 @@ const CATEGORIES = [
   { id: 'art', name: 'San\'at', icon: '🎨' }, { id: 'tech', name: 'Texnologiya', icon: '💻' }
 ];
 
+// =================== APP ===================
 const App = {
   init() {
     try {
@@ -172,10 +279,7 @@ const App = {
       if (Store.data.theme === 'light') document.documentElement.dataset.theme = 'light';
       this.startBg();
       this.renderHome();
-      // PWA removed: online-only mode
-      // GUARANTEED: hide loading after 800ms no matter what
       setTimeout(() => { const l = $('#loading'); if (l) l.classList.add('hide'); }, 800);
-      // Also: error fallback for any failed init step
       window.addEventListener('error', e => { const l = $('#loading'); if (l) l.classList.add('hide'); console.error('Global error:', e.message); });
     } catch (e) {
       console.error('Init failed:', e);
@@ -198,20 +302,19 @@ const App = {
       about: () => this.renderAbout(),
       privacy: () => this.renderLegal('privacy'),
       terms: () => this.renderLegal('terms'),
-      admin: () => this.renderAdmin()
+      admin: () => this.renderAdmin(),
+      apikeys: () => this.renderApiKeys()
     };
     try { (map[page] || map.home)(); } catch (e) { console.error('go error:', e); }
   },
   renderHome() {
     const m = $('#main'); if (!m) return;
     let catsHtml = '';
-    try {
-      catsHtml = CATEGORIES.slice(0, 8).map(c => '<div class="cat-card" data-cat="' + esc(c.id) + '"><div class="cat-icon">' + c.icon + '</div><div class="cat-name">' + esc(c.name) + '</div></div>').join('');
-    } catch (e) { catsHtml = '<p style="color:var(--mut)">Kategoriyalar yuklanmadi</p>'; }
+    try { catsHtml = CATEGORIES.slice(0, 8).map(c => '<div class="cat-card" data-cat="' + esc(c.id) + '"><div class="cat-icon">' + c.icon + '</div><div class="cat-name">' + esc(c.name) + '</div></div>').join(''); }
+    catch (e) { catsHtml = '<p style="color:var(--mut)">Kategoriyalar yuklanmadi</p>'; }
     m.innerHTML = '<h2 class="section-title">🔥 Trend kitoblar</h2><div id="homeTrend"></div><h2 class="section-title">📚 Mashhur janrlar</h2><div class="cat-grid" style="margin-bottom:30px" id="homeCats">' + catsHtml + '</div><h2 class="section-title">⭐ Top baholangan</h2><div id="homeTop"></div>';
     this._loadTrending('homeTrend');
     this._loadTrending('homeTop', 'classic best');
-    // Delegated click for categories
     const cats = $('#homeCats');
     if (cats) cats.addEventListener('click', e => { const card = e.target.closest('.cat-card'); if (card) this.searchCategory(card.dataset.cat); });
   },
@@ -222,14 +325,12 @@ const App = {
     try { const r = await API.search({ q }, { limit: 8 }); cont.innerHTML = r.length ? UI._grid(r) : UI.emptyState('Hozircha mavjud emas'); }
     catch { cont.innerHTML = UI.emptyState('Yuklanmadi'); }
   },
-  searchCategory(catId) {
-    try { const c = CATEGORIES.find(x => x.id === catId); if (c) Search.go(c.name); } catch {}
-  },
+  searchCategory(catId) { try { const c = CATEGORIES.find(x => x.id === catId); if (c) Search.go(c.name); } catch {} },
   renderAuthors() {
     const m = $('#main'); if (!m) return;
     const authors = ['Dostoevsky','Tolstoy','Shakespeare','Pushkin','Asimov','Goethe','Hemingway','Twain'];
     m.innerHTML = '<h2 class="section-title">✍️ Mashhur mualliflar</h2><div class="cat-grid">' + authors.map((a, i) => '<div class="cat-card" data-author="' + esc(a) + '"><div class="cat-icon">' + ['🇷🇺','✍️','🎭','🌹','🚀','🎩','🎣','🎯'][i] + '</div><div class="cat-name">' + esc(a) + '</div></div>').join('') + '</div>';
-    m.addEventListener('click', e => { const c = e.target.closest('.cat-card'); if (c && c.dataset.author) Search.go(c.dataset.author); }, { once: false });
+    m.addEventListener('click', e => { const c = e.target.closest('.cat-card'); if (c && c.dataset.author) Search.go(c.dataset.author); });
   },
   renderFavorites() {
     const favs = Store.data.favorites || [];
@@ -249,9 +350,49 @@ const App = {
   renderLegal(t) { const x = t === 'privacy' ? 'Foydalanuvchi ma\'lumotlari faqat localStorage da saqlanadi. API larga faqat qidiruv so\'zlari yuboriladi.' : 'Open Library, Gutendex, Google Books API. Barcha kitoblar mualliflarga tegishli.'; $('#main').innerHTML = '<h2 class="section-title">' + (t === 'privacy' ? '🔒 Maxfiylik' : '📜 Shartlar') + '</h2><p style="line-height:1.8;padding:20px;background:var(--glass);border-radius:14px">' + x + '</p>'; },
   renderAdmin() {
     const s = Store.data.stats || {};
-    $('#main').innerHTML = '<h2 class="section-title">⚙️ Admin</h2><div class="admin-card"><h3>📊 Statistika</h3><div class="stat-grid"><div class="stat-item"><div class="stat-value">' + fmt(s.searches || 0) + '</div><div class="stat-label">Qidiruvlar</div></div><div class="stat-item"><div class="stat-value">' + fmt(s.booksViewed || 0) + '</div><div class="stat-label">Ko\'rilgan</div></div><div class="stat-item"><div class="stat-value">' + fmt((Store.data.favorites || []).length) + '</div><div class="stat-label">Sevimlilar</div></div></div></div><div class="admin-card"><h3>🛠 Sozlamalar</h3><button class="action-btn" id="clearCacheBtn">🗑 Cache tozalash</button></div>';
-    const b = $('#clearCacheBtn');
-    if (b) b.addEventListener('click', () => { API.cache.clear(); Toast.show('Cache tozalandi', 'ok'); });
+    $('#main').innerHTML = '<h2 class="section-title">⚙️ Admin panel</h2><div class="admin-card"><h3>📊 Statistika</h3><div class="stat-grid"><div class="stat-item"><div class="stat-value">' + fmt(s.searches || 0) + '</div><div class="stat-label">Qidiruvlar</div></div><div class="stat-item"><div class="stat-value">' + fmt(s.booksViewed || 0) + '</div><div class="stat-label">Ko\'rilgan</div></div><div class="stat-item"><div class="stat-value">' + fmt((Store.data.favorites || []).length) + '</div><div class="stat-label">Sevimlilar</div></div></div></div><div class="admin-card"><h3>🛠 Sozlamalar</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="action-btn" id="apikeysBtn">🔑 API kalitlar</button><button class="action-btn" id="clearCacheBtn">🗑 Cache tozalash</button><button class="action-btn" id="resetBtn">♻️ Barcha ma\'lumotlarni tozalash</button></div></div><div class="admin-card"><h3>🌐 API holati</h3><div id="apiStatusList"></div></div>';
+    const b1 = $('#apikeysBtn'); if (b1) b1.addEventListener('click', () => this.renderApiKeys());
+    const b2 = $('#clearCacheBtn'); if (b2) b2.addEventListener('click', () => { API.cache.clear(); Toast.show('Cache tozalandi', 'ok'); this.renderAdmin(); });
+    const b3 = $('#resetBtn'); if (b3) b3.addEventListener('click', () => { if (confirm('Barcha ma\'lumotlar o\'chirilsinmi?')) { localStorage.clear(); location.reload(); } });
+    this._renderApiStatus();
+  },
+  _renderApiStatus() {
+    const list = $('#apiStatusList'); if (!list) return;
+    let h = '';
+    for (const name in Store.config) {
+      const c = Store.config[name];
+      const hasKey = c.key && !c.key.startsWith('YOUR_');
+      h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bord)"><span><strong>' + name + '</strong> ' + (c.enabled ? '✅' : '❌') + ' ' + (hasKey ? '🔑' : '—') + '</span></div>';
+    }
+    list.innerHTML = h;
+  },
+  renderApiKeys() {
+    const m = $('#main');
+    let h = '<h2 class="section-title">🔑 API kalitlari</h2>';
+    h += '<p style="color:var(--mut);margin-bottom:20px;padding:14px;background:var(--glass);border-radius:10px">Kalitlarni shu yerda o\'zgartirishingiz yoki <code>app.js</code> faylida <code>API_CONFIG</code> obyektida ham o\'zgartirishingiz mumkin. O\'zgarishlar faqat sizning brauzeringizda saqlanadi (localStorage).</p>';
+    h += '<form id="apiKeysForm">';
+    for (const name in Store.config) {
+      const c = Store.config[name];
+      h += '<div class="admin-card"><h3>' + name + '</h3>';
+      h += '<label style="display:flex;align-items:center;gap:8px;margin:10px 0"><input type="checkbox" name="enabled_' + name + '" ' + (c.enabled ? 'checked' : '') + '> <span>Faollashtirish</span></label>';
+      h += '<div style="margin:10px 0"><label style="display:block;font-size:12px;color:var(--mut);margin-bottom:4px">API Key:</label><input class="form-input" type="text" name="key_' + name + '" value="' + esc(c.key) + '" placeholder="Kalitni shu yerga kiriting"></div>';
+      h += '<div style="font-size:11px;color:var(--mut)">URL: <code>' + esc(c.baseUrl) + '</code></div>';
+      h += '</div>';
+    }
+    h += '<button type="submit" class="submit-btn" style="margin-top:20px">💾 Saqlash</button></form>';
+    m.innerHTML = h;
+    const f = $('#apiKeysForm');
+    if (f) f.addEventListener('submit', e => {
+      e.preventDefault();
+      for (const name in Store.config) {
+        Store.config[name].enabled = !!f.querySelector('[name="enabled_' + name + '"]').checked;
+        Store.config[name].key = f.querySelector('[name="key_' + name + '"]').value.trim();
+      }
+      Store.saveConfig();
+      API.cache.clear();
+      Toast.show('✅ API kalitlar saqlandi!', 'ok');
+      this.renderAdmin();
+    });
   },
   showDetail(book) {
     try {
@@ -261,10 +402,8 @@ const App = {
       const formats = book.formats && book.formats.length ? book.formats : [];
       const html = '<button class="modal-close" onclick="Modal.close()">✕</button><div class="detail"><div class="detail-cover">' + (book.cover ? '<img src="' + esc(book.cover) + '" alt="' + esc(book.title) + '" onerror="this.parentElement.textContent=\'📖\'">' : '📖') + '</div><div class="detail-content"><h2>' + esc(book.title) + '</h2><div class="detail-author">✍️ ' + esc(book.author || '—') + (book.year ? ' · ' + book.year : '') + '</div><div class="detail-meta"><div class="meta-item"><div class="meta-label">Nashriyot</div><div class="meta-value">' + esc(book.publisher || '—') + '</div></div><div class="meta-item"><div class="meta-label">Til</div><div class="meta-value">' + esc((book.language || '—').toString().toUpperCase()) + '</div></div><div class="meta-item"><div class="meta-label">Sahifalar</div><div class="meta-value">' + esc(book.pages || '—') + '</div></div><div class="meta-item"><div class="meta-label">ISBN</div><div class="meta-value">' + esc(book.isbn || '—') + '</div></div><div class="meta-item"><div class="meta-label">Reyting</div><div class="meta-value">' + (book.rating ? '⭐ ' + book.rating.toFixed(1) : '—') + '</div></div><div class="meta-item"><div class="meta-label">Manba</div><div class="meta-value">' + esc(book.source || 'Open Library') + '</div></div></div>' + (book.description ? '<div class="detail-desc">' + esc(book.description).slice(0, 500) + (book.description.length > 500 ? '...' : '') + '</div>' : '') + (book.subject && book.subject.length ? '<div style="margin-bottom:14px"><strong style="color:var(--neon)">Janrlar:</strong> ' + book.subject.slice(0, 5).map(s => '<span class="filter-chip" style="margin-right:6px">' + esc(s) + '</span>').join('') + '</div>' : '') + '<div class="detail-actions">' + (formats.length ? '<button class="action-btn primary" onclick="App.read()">📖 O\'qish</button>' : '') + '<button class="action-btn" onclick="App.share(\'' + esc(book.title).replace(/'/g, "") + '\')">📤 Ulashish</button><button class="action-btn" onclick="App.copyLink()">📋 Nusxalash</button><button class="action-btn" id="favBtn" style="color:' + (isFav ? 'var(--err)' : 'inherit') + '">' + (isFav ? '❤️' : '🤍') + '</button><button class="action-btn" onclick="App.qr()">📱 QR</button></div>' + (formats.length ? '<h3 style="margin:24px 0 12px;font-size:16px">📥 Yuklab olish</h3><div class="dl-formats">' + formats.slice(0, 6).map(f => '<div class="dl-fmt" data-url="' + esc(typeof f === 'string' ? f : f.url || '') + '"><div class="ftype">' + esc((typeof f === 'string' ? 'FILE' : (f.type || 'FILE')).toString().toUpperCase()) + '</div><div class="fsize">Yuklab olish</div></div>').join('') + '</div>' : book.previewLink ? '<h3 style="margin:24px 0 12px;font-size:16px">📥 Yuklab olish</h3><div style="padding:14px;background:var(--glass);border-radius:10px"><button class="action-btn primary" onclick="window.open(\'' + esc(book.previewLink) + '\',\'_blank\')">👁 Preview</button><button class="action-btn" onclick="window.open(\'' + esc(book.infoLink || '#') + '\',\'_blank\')">ℹ️ Batafsil</button></div>' : '<p style="margin-top:14px;padding:14px;background:var(--glass);border-radius:10px;color:var(--mut);font-size:13px">Ushbu kitobni yuklab olish mumkin emas.</p>') + '<div id="readerArea" style="margin-top:20px"></div></div></div>';
       Modal.open(html);
-      // Fav button
       const favBtn = $('#favBtn');
       if (favBtn) favBtn.addEventListener('click', () => this.toggleFav(book));
-      // Download buttons (delegated)
       const dlContainer = document.querySelector('.dl-formats');
       if (dlContainer) dlContainer.addEventListener('click', e => { const f = e.target.closest('.dl-fmt'); if (f) App.dl(f.dataset.url); });
     } catch (e) { console.error('showDetail error:', e); Toast.show('Xatolik', 'err'); }
@@ -294,18 +433,13 @@ const Modal = {
   open(h) { try { $('#modalContent').innerHTML = h; $('#modal').style.display = 'flex'; document.body.style.overflow = 'hidden'; } catch (e) { console.error(e); } },
   close() { try { $('#modal').style.display = 'none'; document.body.style.overflow = ''; } catch {} }
 };
-const _closeModalOnBackdrop = e => { if (e.target.id === 'modal') Modal.close(); };
-const _closeModalOnEsc = e => { if (e.key === 'Escape') Modal.close(); };
 document.addEventListener('DOMContentLoaded', () => {
-  const m = $('#modal'); if (m) m.addEventListener('click', _closeModalOnBackdrop);
-  document.addEventListener('keydown', _closeModalOnEsc);
+  const m = $('#modal'); if (m) m.addEventListener('click', e => { if (e.target.id === 'modal') Modal.close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') Modal.close(); });
 });
 
 const Toast = { show(m, t) { try { const z = $('#toastZone'); if (!z) return; const x = document.createElement('div'); x.className = 'toast ' + (t || ''); x.textContent = m; z.appendChild(x); setTimeout(() => { try { x.remove(); } catch {} }, 2800); } catch {} } };
 
-/* /* PWA removed: online-only mode */
-
-// Search on Enter
 document.addEventListener('DOMContentLoaded', () => {
   const inp = $('#searchInput');
   if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') Search.go(); });
